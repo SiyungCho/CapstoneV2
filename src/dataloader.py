@@ -13,53 +13,140 @@ class EITSequenceDataset(Dataset):
        
         self.files = []
         for fn in os.listdir(file_directory):
-            if set_type == "train" and fn.startswith("RR-U1"):
-                self.files.append(os.path.join(file_directory, fn))
-            elif set_type == "validation" and fn.startswith("RR-U2"):
-                self.files.append(os.path.join(file_directory, fn))
-            elif set_type == "test" and fn.startswith("RR-U3"):
-                self.files.append(os.path.join(file_directory, fn))
-
-        self.sessions = [] 
-        self.index = [] 
-
-        for fp in self.files:
-            df = pd.read_pickle(fp)
-
-            eit = np.stack(df["eit_data"].tolist()).astype(np.float32)
-            lab = np.stack(df["mphands_data"].tolist()).astype(np.float32)
-
-            eit = eit - eit.mean(axis=0, keepdims=True)
-            lab = lab * 10.0
-
-            T = eit.shape[0]
-            # print(f"Loaded file {fp} with {T} time steps.")
-            # print("sequence length:", self.seq_len)
-            if T < self.seq_len:
+            if not fn.endswith(".pkl"):
                 continue
+            payload = pd.read_pickle(os.path.join(file_directory, fn))
+            hand_df = payload["hand_data"].copy()
+            eit_df = payload["eit_data"].copy()
 
-            sid = len(self.sessions)
-            self.sessions.append((eit, lab))
+            hand_cleaned = self.hand_cleaning(hand_df)
+            eit_cleaned = self.eit_cleaning(eit_df)
+            data, target, deltas = self.match_one_to_one_by_nearest_timestamp(eit_cleaned, hand_cleaned)
 
-            for start in range(0, T - self.seq_len + 1, self.stride):
-                self.index.append((sid, start))
+            eit_ts  = data[:, 0, 0].copy()
+            hand_ts = target[:, 0].copy()
 
-        print(f"Loaded {len(self.sessions)} sessions, {len(self.index)} windows.")
+            data   = data[:, 1:, :]
+            target = target[:, 1:]
+
+
+    def eit_cleaning(self, df):
+        col = "Event" 
+        TS  = "timestamp"
+        FID = "Frame_ID"
+        R   = "Inj"
+        C   = "Sense"
+
+        V = ["Real", "Img", "Magnitude"]
+
+        i = df.index[df[col].eq("baseline_done")].min() 
+        df = df.loc[i:].iloc[1:] if pd.notna(i) else df 
+        df = df.drop(columns=["Event"])
+        df["timestamp"] = df["timestamp"].astype("int64")
+
+        df[R] = df[R].astype(int)
+        df[C] = df[C].astype(int)
+
+        # record index 0..39 (8*5=40) based on row/col
+        df["rec"] = df[R] * 5 + df[C]
+
+        # average timestamp per frame (common definition: midpoint)
+        avg_ts = df.groupby(FID)[TS].agg(lambda s: (s.min() + s.max()) / 2)
+
+        # build a complete frame x rec index so every frame has exactly 40 records
+        full_index = pd.MultiIndex.from_product([avg_ts.index, range(40)], names=[FID, "rec"])
+
+        # keep only what we need, align to full grid, fill missing
+        wide = (
+            df.set_index([FID, "rec"])[V]
+            .reindex(full_index)
+            .fillna(0.0)
+            .sort_index()
+        )
+
+        # tensor (num_frames, 40, 3)
+        X = wide.to_numpy().reshape(len(avg_ts), 40, len(V))
+
+        # timestamps (num_frames,)
+        T = avg_ts.to_numpy()
+
+        T3 = np.repeat(T[:, None, None], repeats=len(V), axis=2)  # (N,1,3)
+        X_with_time = np.concatenate([T3, X], axis=1)             # (N,41,3)
+
+        return X_with_time
+
+    def hand_cleaning(self, df):
+        col = "Event" 
+
+        i = df.index[df[col].eq("baseline_done")].min() 
+        df = df.loc[i:].iloc[1:] if pd.notna(i) else df 
+        df = df.drop(columns=["Event"])
+        df["timestamp"] = df["timestamp"].astype("int64")
+        X = df.to_numpy()
+        return X
+
+    def match_one_to_one_by_nearest_timestamp(self, X1, X2, ts1_from="X1", ts2_col=0, max_delta=None):
+        """
+        X1: (N1, 41, 3)  (timestamp assumed at X1[:,0,0] if ts1_from="X1")
+        X2: (N2, 64)     (timestamp assumed at X2[:, ts2_col])
+
+        max_delta: optional, in same units as timestamps. If set, drops pairs farther than this.
+        Returns: (X1_matched, X2_matched, deltas)
+        """
+        # timestamps
+        if ts1_from == "X1":
+            T1 = X1[:, 0, 0].astype(np.int64)
+        else:
+            T1 = np.asarray(ts1_from, dtype=np.int64)
+
+        T2 = X2[:, ts2_col].astype(np.int64)
+
+        # sort X2 by timestamp for fast nearest lookup
+        order2 = np.argsort(T2)
+        T2s = T2[order2]
+        X2s = X2[order2]
+
+        # nearest candidate in sorted T2 for each T1: compare neighbor left/right
+        pos = np.searchsorted(T2s, T1)
+        left  = np.clip(pos - 1, 0, len(T2s) - 1)
+        right = np.clip(pos,     0, len(T2s) - 1)
+
+        d_left  = np.abs(T2s[left]  - T1)
+        d_right = np.abs(T2s[right] - T1)
+
+        best2 = np.where(d_right < d_left, right, left)   # chosen X2 index (in sorted space)
+        delta = np.minimum(d_left, d_right)
+
+        # enforce one-to-one by taking smallest deltas first
+        order_pairs = np.argsort(delta)   # X1 indices sorted by closeness
+        used2 = np.zeros(len(T2s), dtype=bool)
+
+        keep1 = []
+        keep2 = []
+        for i in order_pairs:
+            j = best2[i]
+            if used2[j]:
+                continue
+            if max_delta is not None and delta[i] > max_delta:
+                continue
+            used2[j] = True
+            keep1.append(i)
+            keep2.append(j)
+
+        keep1 = np.array(keep1, dtype=int)
+        keep2 = np.array(keep2, dtype=int)
+
+        X1m = X1[keep1]
+        X2m = X2s[keep2]
+        dm  = delta[keep1]
+
+        return X1m, X2m, dm
 
     def __len__(self):
-        return len(self.index)
+        return len(self.files)
 
     def __getitem__(self, idx):
-        sid, start = self.index[idx]
-        eit, lab = self.sessions[sid]
-
-        x = eit[start : start + self.seq_len] 
-        y = lab[start : start + self.seq_len] 
-
-        y = y.reshape(self.seq_len, 21, 3)
-
-        # return torch.from_numpy(x), torch.from_numpy(y)
-        return torch.from_numpy(x)
+        return
 
 class EITDataModule(L.LightningDataModule):
     def __init__(self, data_dir, seq_len = 100, stride = 1, batch_size = 32, num_workers = 4, pin_memory = True):

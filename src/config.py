@@ -9,4 +9,4 @@ HAND_CONNECTIONS = [
 ]
 
 #data config
-data_dir = "/home/siyung/Desktop/CapstoneV2/data"
+data_dir = "/home/siyung/Desktop/CapstoneV2/src/data"
