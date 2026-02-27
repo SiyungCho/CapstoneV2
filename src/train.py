@@ -5,7 +5,7 @@ from utils import *
 from config import (
     data_dir
 )
-from dataloader import EITSequenceDataset
+from dataloader import EITDataModule
 
 parser = argparse.ArgumentParser()
 # parser.add_argument() #add needed args
@@ -14,7 +14,7 @@ args = parser.parse_args()
 device = set_device()
 
 def main():
-    dataset = EITSequenceDataset(file_directory=data_dir, set_type="train", seq_len=100, stride=1)
+    data_module = EITDataModule(data_dir=data_dir, batch_size=32, num_workers=4)
     return
 
 if __name__ == "__main__":

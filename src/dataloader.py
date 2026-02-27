@@ -7,42 +7,159 @@ import lightning as L
 from torch.utils.data import DataLoader
 
 class EITSequenceDataset(Dataset):
-    def __init__(self, file_directory, set_type="train", seq_len=100, stride=1):
-        self.seq_len = seq_len
-        self.stride = stride
-       
-        self.files = []
-        for fn in os.listdir(file_directory):
-            if not fn.endswith(".pkl"):
+    """
+    Loads multiple .pkl time-series files, cleans + aligns (EIT <-> hand) by nearest timestamp (1-to-1),
+    drops timestamp dims, then creates sliding windows of length `seq_len` with step `stride`.
+
+    Splitting is *seedable* and done at the FILE level to avoid leakage across train/val/test
+    (i.e., sequences from the same file won't appear in multiple splits).
+
+    Each item returns:
+      x: FloatTensor (seq_len, 40, 3)
+      y: FloatTensor (seq_len, hand_dim_minus_timestamp)
+    """
+
+    def __init__(
+        self,
+        file_directory: str,
+        set_type: str = "train",
+        seq_len: int = 100,
+        stride: int = 1,
+        seed: int = 42,
+        split=(0.7, 0.15, 0.15),
+        max_delta_ns=None,
+        file_level_split: bool = True,
+        keep_deltas: bool = False,
+    ):
+        assert set_type in {"train", "val", "test"}
+        assert seq_len > 0 and stride > 0
+        assert abs(sum(split) - 1.0) < 1e-9
+
+        self.seq_len = int(seq_len)
+        self.stride = int(stride)
+        self.set_type = set_type
+        self.seed = int(seed)
+        self.split = split
+        self.max_delta_ns = max_delta_ns
+        self.keep_deltas = keep_deltas
+
+        # Collect files
+        all_files = [
+            os.path.join(file_directory, fn)
+            for fn in os.listdir(file_directory)
+            if fn.endswith(".pkl")
+        ]
+        all_files.sort()
+        if len(all_files) == 0:
+            raise ValueError(f"No .pkl files found in: {file_directory}")
+
+        # Seedable split
+        rng = np.random.default_rng(self.seed)
+
+        if file_level_split:
+            perm = rng.permutation(len(all_files))
+            n = len(all_files)
+            n_train = int(round(split[0] * n))
+            n_val = int(round(split[1] * n))
+            n_test = n - n_train - n_val
+
+            train_idx = perm[:n_train]
+            val_idx = perm[n_train:n_train + n_val]
+            test_idx = perm[n_train + n_val:]
+
+            if set_type == "train":
+                chosen = [all_files[i] for i in train_idx]
+            elif set_type == "val":
+                chosen = [all_files[i] for i in val_idx]
+            else:
+                chosen = [all_files[i] for i in test_idx]
+        else:
+            # Not recommended (leakage risk), but available:
+            chosen = all_files
+
+        self.files = chosen
+
+        # Build samples as a list of references:
+        # each sample: (file_id, start_idx) into per-file arrays
+        self._series = []   # list of dicts containing per-file aligned arrays
+        self._index = []    # list of (series_id, start_idx)
+        self._build_index(rng)
+
+    # -----------------------
+    # Build sample index
+    # -----------------------
+    def _build_index(self, rng):
+        for fp in self.files:
+            payload = pd.read_pickle(fp)
+            if "hand_data" not in payload or "eit_data" not in payload:
+                # skip files that don't match expected format
                 continue
-            payload = pd.read_pickle(os.path.join(file_directory, fn))
+
             hand_df = payload["hand_data"].copy()
             eit_df = payload["eit_data"].copy()
 
-            hand_cleaned = self.hand_cleaning(hand_df)
-            eit_cleaned = self.eit_cleaning(eit_df)
-            data, target, deltas = self.match_one_to_one_by_nearest_timestamp(eit_cleaned, hand_cleaned)
+            hand_cleaned = self.hand_cleaning(hand_df)   # numpy (Nh, hand_dim)
+            eit_cleaned = self.eit_cleaning(eit_df)      # numpy (Ne, 41, 3)
 
-            eit_ts  = data[:, 0, 0].copy()
-            hand_ts = target[:, 0].copy()
+            data, target, deltas = self.match_one_to_one_by_nearest_timestamp(
+                eit_cleaned,
+                hand_cleaned,
+                max_delta=self.max_delta_ns,
+            )
 
-            data   = data[:, 1:, :]
-            target = target[:, 1:]
+            # If nothing matched, skip
+            if len(data) == 0 or len(target) == 0:
+                continue
 
+            # Drop timestamp dims AFTER matching
+            # EIT: drop first "record" which held timestamp duplicated across channels
+            data = data[:, 1:, :]        # (N, 40, 3)
+            # Hand: drop timestamp column 0
+            target = target[:, 1:]       # (N, hand_dim-1)
 
-    def eit_cleaning(self, df):
-        col = "Event" 
-        TS  = "timestamp"
+            # Store per-file aligned series
+            series_id = len(self._series)
+            entry = {
+                "file": fp,
+                "x": data.astype(np.float32, copy=False),
+                "y": target.astype(np.float32, copy=False),
+            }
+            if self.keep_deltas:
+                entry["deltas"] = deltas.astype(np.int64, copy=False)
+
+            self._series.append(entry)
+
+            N = entry["x"].shape[0]
+            if N < self.seq_len:
+                continue
+
+            # Sliding windows
+            # windows start at: 0, stride, 2*stride, ... , N-seq_len
+            for start in range(0, N - self.seq_len + 1, self.stride):
+                self._index.append((series_id, start))
+
+        if len(self._index) == 0:
+            raise ValueError(
+                "No sequences could be created. "
+                "Check seq_len/stride, baseline_done trimming, or timestamp matching."
+            )
+
+    # -----------------------
+    # Cleaning
+    # -----------------------
+    def eit_cleaning(self, df: pd.DataFrame) -> np.ndarray:
+        col = "Event"
+        TS = "timestamp"
         FID = "Frame_ID"
-        R   = "Inj"
-        C   = "Sense"
+        R = "Inj"
+        C = "Sense"
 
         V = ["Real", "Img", "Magnitude"]
 
-        i = df.index[df[col].eq("baseline_done")].min() 
-        df = df.loc[i:].iloc[1:] if pd.notna(i) else df 
+        i = df.index[df[col].eq("baseline_done")].min()
+        df = df.loc[i:].iloc[1:] if pd.notna(i) else df
         df = df.drop(columns=["Event"])
-        df["timestamp"] = df["timestamp"].astype("int64")
+        df[TS] = df[TS].astype("int64")
 
         df[R] = df[R].astype(int)
         df[C] = df[C].astype(int)
@@ -50,13 +167,12 @@ class EITSequenceDataset(Dataset):
         # record index 0..39 (8*5=40) based on row/col
         df["rec"] = df[R] * 5 + df[C]
 
-        # average timestamp per frame (common definition: midpoint)
+        # average timestamp per frame (midpoint)
         avg_ts = df.groupby(FID)[TS].agg(lambda s: (s.min() + s.max()) / 2)
 
-        # build a complete frame x rec index so every frame has exactly 40 records
+        # full frame x rec grid
         full_index = pd.MultiIndex.from_product([avg_ts.index, range(40)], names=[FID, "rec"])
 
-        # keep only what we need, align to full grid, fill missing
         wide = (
             df.set_index([FID, "rec"])[V]
             .reindex(full_index)
@@ -64,36 +180,30 @@ class EITSequenceDataset(Dataset):
             .sort_index()
         )
 
-        # tensor (num_frames, 40, 3)
         X = wide.to_numpy().reshape(len(avg_ts), 40, len(V))
-
-        # timestamps (num_frames,)
         T = avg_ts.to_numpy()
 
+        # prepend timestamp "record" (kept only for matching; you later drop it)
         T3 = np.repeat(T[:, None, None], repeats=len(V), axis=2)  # (N,1,3)
         X_with_time = np.concatenate([T3, X], axis=1)             # (N,41,3)
-
         return X_with_time
 
-    def hand_cleaning(self, df):
-        col = "Event" 
-
-        i = df.index[df[col].eq("baseline_done")].min() 
-        df = df.loc[i:].iloc[1:] if pd.notna(i) else df 
+    def hand_cleaning(self, df: pd.DataFrame) -> np.ndarray:
+        col = "Event"
+        i = df.index[df[col].eq("baseline_done")].min()
+        df = df.loc[i:].iloc[1:] if pd.notna(i) else df
         df = df.drop(columns=["Event"])
         df["timestamp"] = df["timestamp"].astype("int64")
-        X = df.to_numpy()
-        return X
+        return df.to_numpy()
 
+    # -----------------------
+    # Timestamp matching (1-to-1, nearest)
+    # -----------------------
     def match_one_to_one_by_nearest_timestamp(self, X1, X2, ts1_from="X1", ts2_col=0, max_delta=None):
         """
-        X1: (N1, 41, 3)  (timestamp assumed at X1[:,0,0] if ts1_from="X1")
-        X2: (N2, 64)     (timestamp assumed at X2[:, ts2_col])
-
-        max_delta: optional, in same units as timestamps. If set, drops pairs farther than this.
-        Returns: (X1_matched, X2_matched, deltas)
+        X1: (N1, 41, 3)  timestamp at X1[:,0,0]
+        X2: (N2, D)      timestamp at X2[:,0] by default
         """
-        # timestamps
         if ts1_from == "X1":
             T1 = X1[:, 0, 0].astype(np.int64)
         else:
@@ -101,28 +211,24 @@ class EITSequenceDataset(Dataset):
 
         T2 = X2[:, ts2_col].astype(np.int64)
 
-        # sort X2 by timestamp for fast nearest lookup
         order2 = np.argsort(T2)
         T2s = T2[order2]
         X2s = X2[order2]
 
-        # nearest candidate in sorted T2 for each T1: compare neighbor left/right
         pos = np.searchsorted(T2s, T1)
-        left  = np.clip(pos - 1, 0, len(T2s) - 1)
-        right = np.clip(pos,     0, len(T2s) - 1)
+        left = np.clip(pos - 1, 0, len(T2s) - 1)
+        right = np.clip(pos, 0, len(T2s) - 1)
 
-        d_left  = np.abs(T2s[left]  - T1)
+        d_left = np.abs(T2s[left] - T1)
         d_right = np.abs(T2s[right] - T1)
 
-        best2 = np.where(d_right < d_left, right, left)   # chosen X2 index (in sorted space)
+        best2 = np.where(d_right < d_left, right, left)
         delta = np.minimum(d_left, d_right)
 
-        # enforce one-to-one by taking smallest deltas first
-        order_pairs = np.argsort(delta)   # X1 indices sorted by closeness
+        order_pairs = np.argsort(delta)
         used2 = np.zeros(len(T2s), dtype=bool)
 
-        keep1 = []
-        keep2 = []
+        keep1, keep2 = [], []
         for i in order_pairs:
             j = best2[i]
             if used2[j]:
@@ -138,15 +244,31 @@ class EITSequenceDataset(Dataset):
 
         X1m = X1[keep1]
         X2m = X2s[keep2]
-        dm  = delta[keep1]
-
+        dm = delta[keep1]
         return X1m, X2m, dm
 
+    # -----------------------
+    # Dataset API
+    # -----------------------
     def __len__(self):
-        return len(self.files)
+        return len(self._index)
 
     def __getitem__(self, idx):
-        return
+        series_id, start = self._index[idx]
+        entry = self._series[series_id]
+
+        x = entry["x"][start:start + self.seq_len]  # (seq_len, 40, 3)
+        y = entry["y"][start:start + self.seq_len]  # (seq_len, D-1)
+
+        x = torch.from_numpy(x)  # float32
+        y = torch.from_numpy(y)  # float32
+
+        if self.keep_deltas:
+            d = entry["deltas"][start:start + self.seq_len]
+            d = torch.from_numpy(d)
+            return x, y, d
+
+        return x, y
 
 class EITDataModule(L.LightningDataModule):
     def __init__(self, data_dir, seq_len = 100, stride = 1, batch_size = 32, num_workers = 4, pin_memory = True):
@@ -163,9 +285,30 @@ class EITDataModule(L.LightningDataModule):
         self.ds_test = None
 
     def setup(self, stage=None):
-        self.ds_train = EITSequenceDataset(file_directory=self.data_dir, set_type="train", seq_len=self.seq_len, stride=self.stride)
-        self.ds_val = EITSequenceDataset(file_directory=self.data_dir, set_type="validation", seq_len=self.seq_len, stride=self.stride)
-        self.ds_test = EITSequenceDataset(file_directory=self.data_dir, set_type="test", seq_len=self.seq_len, stride=self.stride)
+        if stage in (None, "fit"):
+            self.ds_train = EITSequenceDataset(
+                file_directory=self.data_dir,
+                set_type="train",
+                seq_len=self.seq_len,
+                stride=self.stride,
+                seed=42,
+            )
+            self.ds_val = EITSequenceDataset(
+                file_directory=self.data_dir,
+                set_type="val",
+                seq_len=self.seq_len,
+                stride=self.stride,
+                seed=42,
+            )
+
+        if stage in (None, "test"):
+            self.ds_test = EITSequenceDataset(
+                file_directory=self.data_dir,
+                set_type="test",
+                seq_len=self.seq_len,
+                stride=self.stride,
+                seed=42,
+            )
 
     def train_dataloader(self):
         return DataLoader(
