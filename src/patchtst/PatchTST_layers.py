@@ -74,7 +74,7 @@ def Coord2dPosEncoding(q_len, d_model, exponential=False, normalize=True, eps=1e
     i = 0
     for i in range(100):
         cpe = 2 * (torch.linspace(0, 1, q_len).reshape(-1, 1) ** x) * (torch.linspace(0, 1, d_model).reshape(1, -1) ** x) - 1
-        pv(f'{i:4.0f}  {x:5.3f}  {cpe.mean():+6.3f}', verbose)
+        # pv(f'{i:4.0f}  {x:5.3f}  {cpe.mean():+6.3f}', verbose)
         if abs(cpe.mean()) <= eps: break
         elif cpe.mean() > eps: x += .001
         else: x -= .001

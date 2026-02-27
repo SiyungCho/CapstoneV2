@@ -1,5 +1,5 @@
 import time
-
+from types import SimpleNamespace
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,24 +9,53 @@ from torch.optim.lr_scheduler import LambdaLR
 from patchtst.patchtst import PatchTSTModel
 from utils import class_to_dict
 
+def _merge_patchtst_configs(patchtst_cfg, model_cfg, train_cfg):
+    cfg = dict(patchtst_cfg)
+    if "patch_stride" in model_cfg and "stride" not in cfg:
+        cfg["stride"] = model_cfg["patch_stride"]
+    if "patch_stride" in model_cfg:
+        cfg["stride"] = model_cfg["patch_stride"]
+    if "patch_len" in model_cfg:
+        cfg["patch_len"] = model_cfg["patch_len"]
+
+    # Transformer dims
+    for k in ("d_model", "d_ff", "e_layers", "n_heads", "dropout", "revin"):
+        if k in model_cfg:
+            cfg[k] = model_cfg[k]
+
+    # Override with TrainConfig IO dims
+    if "enc_in" in train_cfg:
+        cfg["enc_in"] = int(train_cfg["enc_in"])
+
+    # Ensure output sequence length matches labels (y is windowed to seq_len)
+    # If user didn't explicitly set pred_len, default to seq_len.
+    cfg["seq_len"] = int(cfg.get("seq_len", train_cfg.get("seq_len", 100)))
+    cfg["pred_len"] = int(cfg.get("pred_len", cfg["seq_len"]))
+    # Commonly for seq2seq regression we want pred_len == seq_len.
+    cfg["pred_len"] = cfg["seq_len"]
+
+    return SimpleNamespace(**cfg)
+
 class PatchTSTLightningModule(L.LightningModule):
     def __init__(self, PatchTSTConfig_cls, ModelConfig_cls, TrainConfig_cls):
         super().__init__()
         self.patchtst_cfg = class_to_dict(PatchTSTConfig_cls)
         self.model_cfg = class_to_dict(ModelConfig_cls)
         self.train_cfg = class_to_dict(TrainConfig_cls)
-        self.save_hyperparameters(self.patchtst_cfg)
-        self.save_hyperparameters(self.model_cfg)
-        self.save_hyperparameters(self.train_cfg)
+        self.save_hyperparameters(
+            {
+                "patchtst": self.patchtst_cfg,
+                "model": self.model_cfg,
+                "train": self.train_cfg,
+            }
+        )
 
         # Loss configuration
         self.loss_name = self.train_cfg.get("loss", "mse").lower()
         self.loss_fn = nn.MSELoss() if self.loss_name in {"mse", "l2"} else nn.L1Loss()
 
-        # Core PatchTST model
-        self.model = PatchTSTModel(**self.patchtst_cfg)
-        self.target_dim = self.train_cfg.target_dim
-        self.out_proj = nn.Linear(self.patchtst_cfg.enc_in, int(self.target_dim))
+        configs = _merge_patchtst_configs(self.patchtst_cfg, self.model_cfg, self.train_cfg)
+        self.model = PatchTSTModel(configs=configs)
 
     @staticmethod
     def _flatten_channels(x):
@@ -45,29 +74,25 @@ class PatchTSTLightningModule(L.LightningModule):
 
     def _common_step(self, batch, step_type):
         x, y = batch[0], batch[1]
-        x = x.float()
-        y = y.float()
+        x = self._flatten_channels(x.float())   # [B, L, enc_in]
+        y = self._flatten_channels(y.float())   # [B, L, c_out] (y is already [B,L,63])
 
-        x_flat = self._flatten_channels(x)
-        y_flat = self._flatten_channels(y)
+        y_pred = self.model(x)                 # [B, L, c_out]
+        loss = self.loss_fn(y_pred, y)
+        mae = F.l1_loss(y_pred, y)
 
-        y_pred = self.model(x_flat)
-
-        loss = self.loss_fn(y_pred, y_flat)
-        mae = F.l1_loss(y_pred, y_flat)
-
-        self.log(f'{step_type}/loss', loss, on_step=(step_type=='train'), on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log(f'{step_type}/mae', mae, on_step=(step_type=='train'), on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(f"{step_type}/loss", loss, on_step=(step_type == "train"), on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(f"{step_type}/mae", mae, on_step=(step_type == "train"), on_epoch=True, prog_bar=False, sync_dist=True)
         return loss
 
     def training_step(self, batch, batch_idx): return self._common_step(batch, "train")
     def validation_step(self, batch, batch_idx): return self._common_step(batch, "val")
 
     def configure_optimizers(self):
-        lr = self.train_cfg.lr
-        weight_decay = self.train_cfg.weight_decay
-        warmup_ratio = self.train_cfg.warmup_ratio
-        pretrain_epochs = self.train_cfg.pretrain_epochs
+        lr = float(self.train_cfg.get("lr", 1e-3))
+        weight_decay = float(self.train_cfg.get("weight_decay", 1e-2))
+        warmup_ratio = float(self.train_cfg.get("warmup_ratio", 0.0))
+        pretrain_epochs = int(self.train_cfg.get("pretrain_epochs", 1))
 
         optimizer = torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=weight_decay)
 
