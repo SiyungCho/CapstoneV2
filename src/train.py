@@ -1,6 +1,5 @@
 import argparse
 import os
-from dataclasses import asdict
 
 import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
