@@ -23,9 +23,8 @@ def _merge_patchtst_configs(patchtst_cfg, model_cfg, train_cfg):
         if k in model_cfg:
             cfg[k] = model_cfg[k]
 
-    # Override with TrainConfig IO dims
-    if "enc_in" in train_cfg:
-        cfg["enc_in"] = int(train_cfg["enc_in"])
+    cfg["enc_in"] = int(train_cfg["enc_in"])
+    cfg["c_out"] = int(train_cfg["target_dim"])
 
     # Ensure output sequence length matches labels (y is windowed to seq_len)
     # If user didn't explicitly set pred_len, default to seq_len.
@@ -78,6 +77,10 @@ class PatchTSTLightningModule(L.LightningModule):
         y = self._flatten_channels(y.float())   # [B, L, c_out] (y is already [B,L,63])
 
         y_pred = self.model(x)                 # [B, L, c_out]
+
+        # print(f"\n\n\nx_shape: {x.shape}")
+        # print(f"y_pred shape: {y_pred.shape}, y shape: {y.shape}\n\n\n")  # Debugging shapes
+
         loss = self.loss_fn(y_pred, y)
         mae = F.l1_loss(y_pred, y)
 

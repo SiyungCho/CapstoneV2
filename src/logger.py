@@ -41,6 +41,8 @@ class JsonLogger:
             self._write_json(self.data_arguments_path, data, mode, skip_if_exists)
         elif log_type == "train_arguments":
             self._write_json(self.train_arguments_path, data, mode, skip_if_exists)
+        elif log_type == "patchtstmodel_arguments":
+            self._write_json(self.patchtstmodel_arguments_path, data, mode, skip_if_exists)
         
     def _read_json(self, path):
         with open(path, "r", encoding="utf-8") as f:

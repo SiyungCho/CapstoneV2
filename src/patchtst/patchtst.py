@@ -32,8 +32,12 @@ class PatchTSTModel(nn.Module):
         
         super().__init__()
         
-        # load parameters
         c_in = configs.enc_in
+        c_out = getattr(configs, 'c_out', c_in)
+        self.c_in = c_in
+        self.c_out = c_out
+        self.proj_head = nn.Identity() if c_out == c_in else nn.Linear(c_in, c_out)
+
         context_window = configs.seq_len
         target_window = configs.pred_len
         
@@ -102,4 +106,5 @@ class PatchTSTModel(nn.Module):
             x = x.permute(0,2,1)    # x: [Batch, Channel, Input length]
             x = self.model(x)
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
+        x = self.proj_head(x)
         return x
