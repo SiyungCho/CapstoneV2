@@ -1,61 +1,61 @@
-import time
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from dataclasses import dataclass
-import lightning as L
-from torch.optim.lr_scheduler import LambdaLR
+# import time
+# import torch
+# import torch.nn as nn
+# import torch.nn.functional as F
+# from dataclasses import dataclass
+# import lightning as L
+# from torch.optim.lr_scheduler import LambdaLR
 
-from patchtst import Model as PatchTST
+# from patchtst import PatchTSTModel
 
-class PatchTSTLightningModule(L.LightningModule):
-    def __init__(self, hparams):
-        super().__init__()
-        self.save_hyperparameters(hparams)
-        self.model = PatchTST()
+# class PatchTSTLightningModule(L.LightningModule):
+#     def __init__(self, hparams):
+#         super().__init__()
+#         self.save_hyperparameters(hparams)
+#         self.model = PatchTSTModel(hparams)
 
-    def _common_step(self, batch, step_type):
+#     def _common_step(self, batch, step_type):
        
-        return 
+#         return 
 
-    def training_step(self, batch, batch_idx): return self._common_step(batch, 'train')
-    def validation_step(self, batch, batch_idx): return self._common_step(batch, 'val')
+#     def training_step(self, batch, batch_idx): return self._common_step(batch, 'train')
+#     def validation_step(self, batch, batch_idx): return self._common_step(batch, 'val')
 
-    def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
-        try:
-            total_steps = len(self.trainer.datamodule.train_dataloader()) * self.trainer.max_epochs
-        except Exception:
-            total_steps = self.hparams.pretrain_epochs * 250
-        warmup_steps = int(total_steps * self.hparams.warmup_ratio)
+#     def configure_optimizers(self):
+#         optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
+#         try:
+#             total_steps = len(self.trainer.datamodule.train_dataloader()) * self.trainer.max_epochs
+#         except Exception:
+#             total_steps = self.hparams.pretrain_epochs * 250
+#         warmup_steps = int(total_steps * self.hparams.warmup_ratio)
 
-        def lr_lambda(current_step: int):
-            if current_step < warmup_steps:
-                return float(current_step) / float(max(1, warmup_steps))
-            return max(0.0, float(total_steps - current_step) / float(max(1, total_steps - warmup_steps)))
+#         def lr_lambda(current_step: int):
+#             if current_step < warmup_steps:
+#                 return float(current_step) / float(max(1, warmup_steps))
+#             return max(0.0, float(total_steps - current_step) / float(max(1, total_steps - warmup_steps)))
 
-        scheduler = {'scheduler': LambdaLR(optimizer, lr_lambda), 'interval': 'step', 'frequency': 1}
-        return [optimizer], [scheduler]
+#         scheduler = {'scheduler': LambdaLR(optimizer, lr_lambda), 'interval': 'step', 'frequency': 1}
+#         return [optimizer], [scheduler]
 
-class EpochTimer(L.Callback):
-    """Callback to time each training epoch and log the duration."""
-    def __init__(self, logger):
-        super().__init__()
-        self.logger = logger
-        self.epoch_times = []
-        self.start_time = 0
+# class EpochTimer(L.Callback):
+#     """Callback to time each training epoch and log the duration."""
+#     def __init__(self, logger):
+#         super().__init__()
+#         self.logger = logger
+#         self.epoch_times = []
+#         self.start_time = 0
 
-    def on_train_epoch_start(self, trainer, pl_module):
-        """Record the start time at the beginning of each training epoch."""
-        self.start_time = time.time()
+#     def on_train_epoch_start(self, trainer, pl_module):
+#         """Record the start time at the beginning of each training epoch."""
+#         self.start_time = time.time()
 
-    def on_train_epoch_end(self, trainer, pl_module):
-        """Calculate and log the epoch duration at the end of each training epoch."""
-        end_time = time.time()
-        duration = end_time - self.start_time
+#     def on_train_epoch_end(self, trainer, pl_module):
+#         """Calculate and log the epoch duration at the end of each training epoch."""
+#         end_time = time.time()
+#         duration = end_time - self.start_time
         
-        self.epoch_times.append(duration)
-        self.logger.log(f"Epoch {trainer.current_epoch + 1} duration: {duration:.2f} seconds", log_type="log")
+#         self.epoch_times.append(duration)
+#         self.logger.log(f"Epoch {trainer.current_epoch + 1} duration: {duration:.2f} seconds", log_type="log")
 
 import time
 from dataclasses import dataclass
@@ -68,7 +68,7 @@ import torch.nn.functional as F
 import lightning as L
 from torch.optim.lr_scheduler import LambdaLR
 
-from patchtst import Model as PatchTST
+from .patchtst import PatchTSTModel
 
 
 @dataclass
@@ -166,7 +166,7 @@ class PatchTSTLightningModule(L.LightningModule):
         self.cfg = cfg
 
         # Core PatchTST model
-        self.model = PatchTST(cfg)
+        self.model = PatchTSTModel(cfg)
 
         # Optional output projection (PatchTST outputs `enc_in` channels)
         # If target_dim is not provided, we infer from the first batch at runtime.

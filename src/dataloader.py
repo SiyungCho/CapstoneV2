@@ -7,32 +7,7 @@ import lightning as L
 from torch.utils.data import DataLoader
 
 class EITSequenceDataset(Dataset):
-    """
-    Loads multiple .pkl time-series files, cleans + aligns (EIT <-> hand) by nearest timestamp (1-to-1),
-    drops timestamp dims, then creates sliding windows of length `seq_len` with step `stride`.
-
-    Splitting is *seedable* and done at the FILE level to avoid leakage across train/val/test
-    (i.e., sequences from the same file won't appear in multiple splits).
-
-    Each item returns:
-      x: FloatTensor (seq_len, 40, 3)
-      y: FloatTensor (seq_len, hand_dim_minus_timestamp)
-    """
-
-    def __init__(self, file_directory,
-        set_type: str = "train",
-        seq_len: int = 100,
-        stride: int = 1,
-        seed: int = 42,
-        split=(0.7, 0.15, 0.15),
-        max_delta_ns=None,
-        file_level_split: bool = True,
-        keep_deltas: bool = False,
-    ):
-        assert set_type in {"train", "val", "test"}
-        assert seq_len > 0 and stride > 0
-        assert abs(sum(split) - 1.0) < 1e-9
-
+    def __init__(self, file_directory, set_type = "train", seq_len = 100, stride = 1, seed = 42, split=(0.7, 0.15, 0.15), max_delta_ns=None, keep_deltas = False):
         self.seq_len = int(seq_len)
         self.stride = int(stride)
         self.set_type = set_type
@@ -47,34 +22,27 @@ class EITSequenceDataset(Dataset):
             for fn in os.listdir(file_directory)
             if fn.endswith(".pkl")
         ]
-        all_files.sort()
-        if len(all_files) == 0:
-            raise ValueError(f"No .pkl files found in: {file_directory}")
-
+        
         # Seedable split
         rng = np.random.default_rng(self.seed)
 
-        if file_level_split:
-            perm = rng.permutation(len(all_files))
-            n = len(all_files)
-            n_train = int(round(split[0] * n))
-            n_val = int(round(split[1] * n))
-            n_test = n - n_train - n_val
+        perm = rng.permutation(len(all_files))
+        n = len(all_files)
+        n_train = int(round(split[0] * n))
+        n_val = int(round(split[1] * n))
+        n_test = n - n_train - n_val
 
-            train_idx = perm[:n_train]
-            val_idx = perm[n_train:n_train + n_val]
-            test_idx = perm[n_train + n_val:]
+        train_idx = perm[:n_train]
+        val_idx = perm[n_train:n_train + n_val]
+        test_idx = perm[n_train + n_val:]
 
-            if set_type == "train":
-                chosen = [all_files[i] for i in train_idx]
-            elif set_type == "val":
-                chosen = [all_files[i] for i in val_idx]
-            else:
-                chosen = [all_files[i] for i in test_idx]
+        if set_type == "train":
+            chosen = [all_files[i] for i in train_idx]
+        elif set_type == "val":
+            chosen = [all_files[i] for i in val_idx]
         else:
-            # Not recommended (leakage risk), but available:
-            chosen = all_files
-
+            chosen = [all_files[i] for i in test_idx]
+        
         self.files = chosen
 
         # Build samples as a list of references:

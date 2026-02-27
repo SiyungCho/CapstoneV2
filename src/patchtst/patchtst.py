@@ -5,10 +5,10 @@ from torch import Tensor
 import torch.nn.functional as F
 import numpy as np
 
-from PatchTST_backbone import PatchTST_backbone
-from PatchTST_layers import series_decomp
+from .PatchTST_backbone import PatchTST_backbone
+from .PatchTST_layers import series_decomp
 
-class Model(nn.Module):
+class PatchTSTModel(nn.Module):
     def __init__(self, 
                  configs,
                  max_seq_len:Optional[int]=1024, 
