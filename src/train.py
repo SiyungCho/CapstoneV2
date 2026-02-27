@@ -18,6 +18,7 @@ logger.log(class_to_dict(PatchTSTConfig), log_type="patchtstmodel_arguments", sk
 def main():
     L.seed_everything(TrainConfig.seed, workers=True)
     dm = EITDataModule(**class_to_dict(DataConfig))
+    # dm.setup(stage="fit")
     model = PatchTSTLightningModule(PatchTSTConfig, ModelConfig, TrainConfig)
 
     # ckpt_cb = ModelCheckpoint(

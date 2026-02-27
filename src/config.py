@@ -45,14 +45,21 @@ class ModelConfig:
 @dataclass(frozen=True)
 class TrainConfig:
     seed = 42
-    max_epochs = 50
+    max_epochs = 150
 
     # optim
     lr = 1e-3
     weight_decay = 1e-2
     warmup_ratio = 0.05
+    pretrain_epochs = 5
+    early_stop_patience = 10
 
-    # loss: "mse" or "mae"
+    #model input/output dims from dataloader output, Sample x shape: (L, 40, 3), Sample y shape: (L, 63)
+    #input dim (B,L,40,3) -> (B,L,120) after flattening last two dims, output dim (B,L,63)
+    enc_in = 120
+    target_dim = 63
+
+    # loss
     loss = "mse"
 
     # logging / checkpoints
@@ -61,8 +68,6 @@ class TrainConfig:
 
     # lightning precision: "32-true", "16-mixed", "bf16-mixed" (depends on GPU support)
     precision = "32-true"
-
-    early_stop_patience = 10
 
 
 # --------------- patchtst defaults ---------------
