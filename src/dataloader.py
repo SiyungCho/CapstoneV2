@@ -19,9 +19,7 @@ class EITSequenceDataset(Dataset):
       y: FloatTensor (seq_len, hand_dim_minus_timestamp)
     """
 
-    def __init__(
-        self,
-        file_directory: str,
+    def __init__(self, file_directory,
         set_type: str = "train",
         seq_len: int = 100,
         stride: int = 1,
