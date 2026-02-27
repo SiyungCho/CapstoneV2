@@ -91,9 +91,9 @@ def train(TrainConfig, logger, data_module, model, visualizer_callback, total_fl
     training_duration = 0
     start_time = time.time()
 
-    logger.log("Starting HIMAE pre-training...", log_type="log")
+    logger.log("Starting PatchTST pre-training...", log_type="log")
     trainer.fit(model, datamodule=data_module)
-    logger.log("HIMAE pre-training complete.", log_type="log")
+    logger.log("PatchTST pre-training complete.", log_type="log")
 
     end_time = time.time()
     training_duration = end_time - start_time
