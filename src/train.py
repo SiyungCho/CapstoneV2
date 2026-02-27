@@ -3,47 +3,22 @@ import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
 
 from dataloader import EITDataModule
-# from patchtst.module import PatchTSTLightningModule
-from config import TrainConfig, ModelConfig, DataConfig
+from patchtst_module import PatchTSTLightningModule
+from config import TrainConfig, ModelConfig, DataConfig, PatchTSTConfig
 from logger import JsonLogger
 from utils import set_device, class_to_dict
 
 device = set_device()
-logger = JsonLogger(log_dir="./logs")
+logger = JsonLogger(log_dir=TrainConfig.log_dir)
 logger.log(class_to_dict(ModelConfig), log_type="model_arguments", skip_if_exists=True)
 logger.log(class_to_dict(DataConfig), log_type="data_arguments", skip_if_exists=True)
 logger.log(class_to_dict(TrainConfig), log_type="train_arguments", skip_if_exists=True)
+logger.log(class_to_dict(PatchTSTConfig), log_type="patchtstmodel_arguments", skip_if_exists=True)
 
 def main():
     L.seed_everything(TrainConfig.seed, workers=True)
     dm = EITDataModule(**class_to_dict(DataConfig))
-
-    # PatchTST hparams expected by PatchTSTLightningModule
-    # enc_in = infer_enc_in()
-    # hparams = dict(
-    #     # PatchTSTConfig fields
-    #     enc_in=enc_in,
-    #     seq_len=args.seq_len,
-    #     pred_len=args.seq_len,  # predict a value per timestep for the same window length
-    #     patch_len=args.patch_len,
-    #     stride=args.patch_stride,
-    #     d_model=args.d_model,
-    #     d_ff=args.d_ff,
-    #     e_layers=args.e_layers,
-    #     n_heads=args.n_heads,
-    #     dropout=args.dropout,
-    #     revin=args.revin,
-
-    #     # Optim
-    #     lr=args.lr,
-    #     weight_decay=args.weight_decay,
-    #     warmup_ratio=args.warmup_ratio,
-
-    #     # Loss (optional: "mse" or "mae")
-    #     loss=TrainConfig.loss,
-    # )
-
-    # model = PatchTSTLightningModule(hparams)
+    model = PatchTSTLightningModule(PatchTSTConfig, ModelConfig, TrainConfig)
 
     # ckpt_cb = ModelCheckpoint(
     #     dirpath=args.ckpt_dir,

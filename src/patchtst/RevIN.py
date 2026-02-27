@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class RevIN(nn.Module):
-    def __init__(self, num_features: int, eps=1e-5, affine=True, subtract_last=False):
+    def __init__(self, num_features, eps=1e-5, affine=True, subtract_last=False):
         """
         :param num_features: the number of features or channels
         :param eps: a value added for numerical stability
@@ -16,7 +16,7 @@ class RevIN(nn.Module):
         if self.affine:
             self._init_params()
 
-    def forward(self, x, mode:str):
+    def forward(self, x, mode):
         if mode == 'norm':
             self._get_statistics(x)
             x = self._normalize(x)

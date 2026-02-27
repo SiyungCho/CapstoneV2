@@ -63,3 +63,62 @@ class TrainConfig:
     precision = "32-true"
 
     early_stop_patience = 10
+
+
+# --------------- patchtst defaults ---------------
+
+@dataclass
+class PatchTSTConfig:
+    # data / io
+    enc_in = 1          # number of input channels (variables)
+    seq_len = 100       # context window length
+    pred_len = 100      # prediction window length (output sequence length)
+
+    # transformer
+    e_layers = 3
+    n_heads = 8
+    d_model = 128
+    d_ff = 256
+    dropout = 0.1
+    fc_dropout = 0.1
+    head_dropout = 0.0
+
+    # head
+    individual = False
+
+    # patching
+    patch_len = 16
+    stride = 8
+    padding_patch = None 
+
+    # RevIN
+    revin = True
+    affine = True
+    subtract_last = False
+
+    # decomposition
+    decomposition = False
+    kernel_size = 25
+
+
+# cfg = PatchTSTConfig(
+#             enc_in=getattr(hparams_ns, "enc_in", 1),
+#             seq_len=getattr(hparams_ns, "seq_len", 100),
+#             pred_len=getattr(hparams_ns, "pred_len", getattr(hparams_ns, "seq_len", 100)),
+#             e_layers=getattr(hparams_ns, "e_layers", 3),
+#             n_heads=getattr(hparams_ns, "n_heads", 8),
+#             d_model=getattr(hparams_ns, "d_model", 128),
+#             d_ff=getattr(hparams_ns, "d_ff", 256),
+#             dropout=getattr(hparams_ns, "dropout", 0.1),
+#             fc_dropout=getattr(hparams_ns, "fc_dropout", 0.1),
+#             head_dropout=getattr(hparams_ns, "head_dropout", 0.0),
+#             individual=getattr(hparams_ns, "individual", False),
+#             patch_len=getattr(hparams_ns, "patch_len", 16),
+#             stride=getattr(hparams_ns, "stride", 8),
+#             padding_patch=getattr(hparams_ns, "padding_patch", None),
+#             revin=getattr(hparams_ns, "revin", True),
+#             affine=getattr(hparams_ns, "affine", True),
+#             subtract_last=getattr(hparams_ns, "subtract_last", False),
+#             decomposition=getattr(hparams_ns, "decomposition", False),
+#             kernel_size=getattr(hparams_ns, "kernel_size", 25),
+#         )

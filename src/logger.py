@@ -13,11 +13,13 @@ class JsonLogger:
         self.model_arguments_path = os.path.join(self.log_dir, "model_arguments.json")
         self.data_arguments_path = os.path.join(self.log_dir, "data_arguments.json")
         self.train_arguments_path = os.path.join(self.log_dir, "train_arguments.json")
+        self.patchtstmodel_arguments_path = os.path.join(self.log_dir, "patchtstmodel_arguments.json")
         self.create_file(self.config_path)
         self.create_file(self.model_arguments_path)
         self.create_file(self.log_path)
         self.create_file(self.data_arguments_path)
         self.create_file(self.train_arguments_path)
+        self.create_file(self.patchtstmodel_arguments_path)
     
     def create_file(self, path):
         if not os.path.exists(path):
