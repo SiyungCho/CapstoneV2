@@ -17,11 +17,11 @@ HAND_CONNECTIONS = [
 class DataConfig:
     data_dir = "/Users/frankcho/Desktop/CapstoneV2/src/data/"
 
-    seq_len = 10
+    seq_len = 100
     data_stride = 1
 
     batch_size = 64
-    num_workers = 0
+    num_workers = 4
     pin_memory = True
 
 
