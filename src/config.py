@@ -18,12 +18,11 @@ class DataConfig:
     data_dir = "/Users/frankcho/Desktop/CapstoneV2/src/data/"
 
     seq_len = 100
-    data_stride = 1
+    stride = 1
 
     batch_size = 64
     num_workers = 4
     pin_memory = True
-
 
 # --------------- model defaults (PatchTST) ---------------
 @dataclass(frozen=True)
@@ -41,7 +40,6 @@ class ModelConfig:
 
     # RevIN
     revin = True
-
 
 # --------------- training defaults ---------------
 @dataclass(frozen=True)

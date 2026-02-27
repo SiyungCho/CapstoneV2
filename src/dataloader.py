@@ -188,6 +188,7 @@ class EITSequenceDataset(Dataset):
 class EITDataModule(L.LightningDataModule):
     def __init__(self, data_dir, seq_len = 100, stride = 1, batch_size = 32, num_workers = 4, pin_memory = True):
         super().__init__()
+        print("DataModule initialized with data_dir:", data_dir)
         self.data_dir = data_dir
         self.seq_len = seq_len
         self.stride = stride

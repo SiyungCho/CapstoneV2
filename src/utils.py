@@ -16,3 +16,9 @@ def get_available_cuda(usage=50):
         if torch.cuda.utilization(i) < usage:
             device_ids.append(i)
     return device_ids
+
+def class_to_dict(cls):
+    return {
+        k: v for k, v in cls.__dict__.items()
+        if not k.startswith("_") and not callable(v)
+    }
