@@ -28,7 +28,10 @@ class DataConfig:
 # --------------- model defaults ---------------
 @dataclass(frozen=True)
 class ModelConfig:
-    dummy = True
+    pe = "sincos"  # "sin_cos" or "coord_2d"
+    act = "gelu"
+    # pre_norm = True
+    # attn_dropout = 0.3
 
 # --------------- training defaults ---------------
 @dataclass(frozen=True)
@@ -40,7 +43,7 @@ class TrainConfig:
     lr = 1e-3
     weight_decay = 1e-2
     warmup_ratio = 0.05
-    pretrain_epochs = 10
+    pretrain_epochs = 5
     early_stop_patience = 10
 
     #model input/output dims from dataloader output, Sample x shape: (L, 40, 3), Sample y shape: (L, 63)
@@ -49,7 +52,7 @@ class TrainConfig:
     target_dim = 63
 
     # loss
-    loss = "mse"
+    loss_fn = "handpose"  # "mse", "mpjpe", or "handpose"
 
     # logging / checkpoints
     log_dir = "./logs"
@@ -60,7 +63,7 @@ class TrainConfig:
 
 # --------------- patchtst defaults ---------------
 
-@dataclass
+@dataclass(frozen=True)
 class PatchTSTConfig:
     # data / io
     seq_len = DataConfig.seq_len       # context window length

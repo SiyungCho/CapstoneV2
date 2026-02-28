@@ -73,10 +73,10 @@ class PatchTST_backbone(nn.Module):
         z = self.head(z)                                                                    # z: [bs x nvars x target_window] 
         
         # denorm
-        if self.revin: 
-            z = z.permute(0,2,1)
-            z = self.revin_layer(z, 'denorm')
-            z = z.permute(0,2,1)
+        # if self.revin: 
+        #     z = z.permute(0,2,1)
+        #     z = self.revin_layer(z, 'denorm')
+        #     z = z.permute(0,2,1)
         return z
     
     def create_pretrain_head(self, head_nf, vars, dropout):

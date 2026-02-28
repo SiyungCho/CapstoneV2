@@ -17,6 +17,8 @@ from patchtst.patchtst import PatchTSTModel
 from utils import class_to_dict
 from config import HAND_CONNECTIONS
 
+from loss import HandPoseLoss, MPJPELoss
+
 
 def _merge_patchtst_configs(patchtst_cfg, model_cfg, train_cfg):
     cfg = dict(patchtst_cfg)
@@ -41,10 +43,15 @@ class PatchTSTLightningModule(L.LightningModule):
         )
 
         # Loss configuration
-        self.loss_fn = nn.MSELoss(reduction='none')
+        if self.train_cfg.get("loss_fn") == "mse":
+            self.loss_fn = nn.MSELoss(reduction='none')
+        elif self.train_cfg.get("loss_fn") == "mpjpe":
+            self.loss_fn = MPJPELoss()
+        elif self.train_cfg.get("loss_fn") == "handpose":
+            self.loss_fn = HandPoseLoss(lambda_bone=1.0, lambda_smooth=1.0)
 
         configs = _merge_patchtst_configs(self.patchtst_cfg, self.model_cfg, self.train_cfg)
-        self.model = PatchTSTModel(configs=configs)
+        self.model = PatchTSTModel(configs=configs, **self.model_cfg)
 
     @staticmethod
     def _flatten_channels(x):

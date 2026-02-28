@@ -42,7 +42,7 @@ def train(TrainConfig, logger, data_module, model, total_flops, flops_analyzer):
 
     visualizer_callback = QualitativeVisualizer(
         logger=logger, 
-        every_n_epochs=10, 
+        every_n_epochs=3, 
         num_frames=6, 
         sample_index=0, 
         out_dirname="qualitative"
