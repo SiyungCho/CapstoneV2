@@ -20,27 +20,9 @@ from config import HAND_CONNECTIONS
 
 def _merge_patchtst_configs(patchtst_cfg, model_cfg, train_cfg):
     cfg = dict(patchtst_cfg)
-    if "patch_stride" in model_cfg and "stride" not in cfg:
-        cfg["stride"] = model_cfg["patch_stride"]
-    if "patch_stride" in model_cfg:
-        cfg["stride"] = model_cfg["patch_stride"]
-    if "patch_len" in model_cfg:
-        cfg["patch_len"] = model_cfg["patch_len"]
-
-    # Transformer dims
-    for k in ("d_model", "d_ff", "e_layers", "n_heads", "dropout", "revin"):
-        if k in model_cfg:
-            cfg[k] = model_cfg[k]
 
     cfg["enc_in"] = int(train_cfg["enc_in"])
     cfg["c_out"] = int(train_cfg["target_dim"])
-
-    # Ensure output sequence length matches labels (y is windowed to seq_len)
-    # If user didn't explicitly set pred_len, default to seq_len.
-    cfg["seq_len"] = int(cfg.get("seq_len", train_cfg.get("seq_len", 100)))
-    cfg["pred_len"] = int(cfg.get("pred_len", cfg["seq_len"]))
-    # Commonly for seq2seq regression we want pred_len == seq_len.
-    cfg["pred_len"] = cfg["seq_len"]
 
     return SimpleNamespace(**cfg)
 
@@ -295,6 +277,19 @@ class QualitativeVisualizer(L.Callback):
         if hasattr(ax, "set_box_aspect"):
             ax.set_box_aspect([1, 1, 1])
 
+    def _annotate_3d_bounds(self, ax):
+        # Show axis bounds (useful for debugging scaling/outliers)
+        try:
+            x0, x1 = ax.get_xlim3d()
+            y0, y1 = ax.get_ylim3d()
+            z0, z1 = ax.get_zlim3d()
+            txt = (f"x:[{x0:.3g},{x1:.3g}]\n"
+                   f"y:[{y0:.3g},{y1:.3g}]\n"
+                   f"z:[{z0:.3g},{z1:.3g}]")
+            ax.text2D(0.02, 0.02, txt, transform=ax.transAxes, fontsize=6)
+        except Exception:
+            pass
+
     def _plot_handpose_montage(self, gt: np.ndarray, pred: np.ndarray, frame_ids: Sequence[int], save_path: str):
         frame_ids = list(frame_ids)
         n = len(frame_ids)
@@ -302,20 +297,19 @@ class QualitativeVisualizer(L.Callback):
 
         fig = plt.figure(figsize=(max(10, 2.2 * cols), 5.0))
 
-        # shared limits across all subplots to make GT/Pred comparable
-        pts = np.concatenate(
-            [gt[frame_ids].reshape(-1, 3), pred[frame_ids].reshape(-1, 3)],
-            axis=0,
-        )
-
         for i, t in enumerate(frame_ids):
+            # FIX: set limits per-plot (separately for GT and Pred) so a bad Pred frame
+            # can't collapse GT (and vice-versa).
+
             ax = fig.add_subplot(rows, cols, i + 1, projection="3d")
             self._plot_skeleton_3d(ax, gt[t], title=f"GT t={t}")
-            self._set_equal_3d_limits(ax, pts)
+            self._set_equal_3d_limits(ax, gt[t])
+            self._annotate_3d_bounds(ax)
 
             ax2 = fig.add_subplot(rows, cols, cols + i + 1, projection="3d")
             self._plot_skeleton_3d(ax2, pred[t], title=f"Pred t={t}")
-            self._set_equal_3d_limits(ax2, pts)
+            self._set_equal_3d_limits(ax2, pred[t])
+            self._annotate_3d_bounds(ax2)
 
         fig.suptitle("Hand Pose: Ground Truth (top) vs Prediction (bottom)", fontsize=12)
         fig.tight_layout(rect=[0, 0, 1, 0.93])

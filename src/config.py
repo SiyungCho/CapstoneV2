@@ -21,38 +21,26 @@ class DataConfig:
     seq_len = 100
     stride = 1
 
-    batch_size = 64
+    batch_size = 16
     num_workers = 4
-    pin_memory = True
+    pin_memory = False
 
-# --------------- model defaults (PatchTST) ---------------
+# --------------- model defaults ---------------
 @dataclass(frozen=True)
 class ModelConfig:
-    # patching (PatchTST)
-    patch_len = 12
-    patch_stride = 12
-
-    # transformer
-    d_model = 128
-    d_ff = 256
-    e_layers = 3
-    n_heads = 8
-    dropout = 0.3
-
-    # RevIN
-    revin = True
+    dummy = True
 
 # --------------- training defaults ---------------
 @dataclass(frozen=True)
 class TrainConfig:
     seed = 42
-    max_epochs = 150
+    max_epochs = 300
 
     # optim
     lr = 1e-3
     weight_decay = 1e-2
     warmup_ratio = 0.05
-    pretrain_epochs = 5
+    pretrain_epochs = 10
     early_stop_patience = 10
 
     #model input/output dims from dataloader output, Sample x shape: (L, 40, 3), Sample y shape: (L, 63)
@@ -79,20 +67,20 @@ class PatchTSTConfig:
     pred_len = DataConfig.seq_len      # prediction window length (output sequence length)
 
     # transformer
-    e_layers = 3
-    n_heads = 8
-    d_model = 128
-    d_ff = 256
-    dropout = 0.3
-    fc_dropout = 0.3
+    e_layers = 6
+    n_heads = 16
+    d_model = 256
+    d_ff = 512
+    dropout = 0.5
+    fc_dropout = 0.5
     head_dropout = 0.5
 
     # head
     individual = False
 
     # patching
-    patch_len = 16
-    stride = 8
+    patch_len = 32
+    stride = 16
     padding_patch = None 
 
     # RevIN
@@ -101,5 +89,5 @@ class PatchTSTConfig:
     subtract_last = False
 
     # decomposition
-    decomposition = False
+    decomposition = True
     kernel_size = 25
