@@ -191,14 +191,41 @@ class QualitativeVisualizer(L.Callback):
             return
 
         batch = self._get_one_val_batch(trainer)
-        x, y = batch[0], batch[1]
+        x, y = self._unpack_batch(batch)
         self._run_and_save(trainer, pl_module, x, y, epoch)
 
     def _get_one_val_batch(self, trainer):
         dm = getattr(trainer, "datamodule", None)
+        if dm is None:
+            raise RuntimeError("Trainer has no datamodule; QualitativeVisualizer needs a val dataloader.")
+
         dl = dm.val_dataloader()
-        dl = dl[0]
+
+        # Some Lightning setups return list/tuple of loaders
+        if isinstance(dl, (list, tuple)):
+            if len(dl) == 0:
+                raise RuntimeError("val_dataloader() returned an empty list/tuple.")
+            dl = dl[0]
+
         return next(iter(dl))
+
+    @staticmethod
+    def _unpack_batch(batch):
+        # Dict-style batch
+        if isinstance(batch, dict):
+            x = batch.get("x", None)
+            y = batch.get("y", None)
+            if x is None or y is None:
+                # common alternatives
+                x = batch.get("inputs", x)
+                y = batch.get("targets", y)
+            return x, y
+
+        # Tuple/list batch
+        if isinstance(batch, (list, tuple)):
+            if len(batch) >= 2:
+                return batch[0], batch[1]
+        return None, None
 
     @torch.no_grad()
     def _run_and_save(self, trainer, pl_module, x, y, epoch):
@@ -234,15 +261,17 @@ class QualitativeVisualizer(L.Callback):
         if was_training:
             pl_module.train()
 
-
     #fix functions below
-
     def _plot_skeleton_3d(self, ax, joints_xyz: np.ndarray, title: str = ""):
+        joints_xyz = np.asarray(joints_xyz, dtype=float)
         xs, ys, zs = joints_xyz[:, 0], joints_xyz[:, 1], joints_xyz[:, 2]
+
         ax.scatter(xs, ys, zs, s=10)
+
         for a, b in HAND_CONNECTIONS:
             if a < joints_xyz.shape[0] and b < joints_xyz.shape[0]:
                 ax.plot([xs[a], xs[b]], [ys[a], ys[b]], [zs[a], zs[b]], linewidth=1)
+
         ax.set_title(title, fontsize=9)
         ax.set_xticks([])
         ax.set_yticks([])
@@ -250,22 +279,34 @@ class QualitativeVisualizer(L.Callback):
         ax.view_init(elev=20, azim=-60)
 
     def _set_equal_3d_limits(self, ax, pts: np.ndarray):
+        pts = np.asarray(pts, dtype=float)
         mins = pts.min(axis=0)
         maxs = pts.max(axis=0)
         center = (mins + maxs) / 2.0
         span = float((maxs - mins).max())
         span = span if span > 0 else 1.0
         half = span / 2.0
+
         ax.set_xlim(center[0] - half, center[0] + half)
         ax.set_ylim(center[1] - half, center[1] + half)
         ax.set_zlim(center[2] - half, center[2] + half)
 
+        # Matplotlib >= 3.3: keeps 3D aspect from distorting
+        if hasattr(ax, "set_box_aspect"):
+            ax.set_box_aspect([1, 1, 1])
+
     def _plot_handpose_montage(self, gt: np.ndarray, pred: np.ndarray, frame_ids: Sequence[int], save_path: str):
+        frame_ids = list(frame_ids)
         n = len(frame_ids)
         cols, rows = n, 2
 
         fig = plt.figure(figsize=(max(10, 2.2 * cols), 5.0))
-        pts = np.concatenate([gt[frame_ids].reshape(-1, 3), pred[frame_ids].reshape(-1, 3)], axis=0)
+
+        # shared limits across all subplots to make GT/Pred comparable
+        pts = np.concatenate(
+            [gt[frame_ids].reshape(-1, 3), pred[frame_ids].reshape(-1, 3)],
+            axis=0,
+        )
 
         for i, t in enumerate(frame_ids):
             ax = fig.add_subplot(rows, cols, i + 1, projection="3d")
@@ -282,6 +323,7 @@ class QualitativeVisualizer(L.Callback):
         plt.close(fig)
 
     def _plot_error_timeseries(self, gt: np.ndarray, pred: np.ndarray, save_path: str):
+        # L2 error per joint over time
         per_joint = np.linalg.norm(pred - gt, axis=-1)  # [L, J]
         mean_err = per_joint.mean(axis=1)               # [L]
 
@@ -293,6 +335,7 @@ class QualitativeVisualizer(L.Callback):
         ax.plot(mean_err, label="mean joint L2")
         for k in key:
             ax.plot(per_joint[:, k], label=f"joint {k} L2", alpha=0.8)
+
         ax.set_title("Prediction Error Over Time")
         ax.set_xlabel("timestep")
         ax.set_ylabel("L2 error")
