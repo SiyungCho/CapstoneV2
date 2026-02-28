@@ -8,7 +8,7 @@ import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
 
 from dataloader import EITDataModule
-from patchtst_module import PatchTSTLightningModule, EpochTimer
+from patchtst_module import PatchTSTLightningModule, EpochTimer, LossHistory, QualitativeVisualizer
 from config import TrainConfig, ModelConfig, DataConfig, PatchTSTConfig
 from logger import JsonLogger, CustomLightningLogger
 from utils import set_device, class_to_dict
@@ -22,6 +22,7 @@ logger.log(class_to_dict(PatchTSTConfig), log_type="patchtstmodel_arguments", sk
 
 def train(TrainConfig, logger, data_module, model, total_flops, flops_analyzer):
     epoch_timer_callback = EpochTimer(logger)
+    loss_history_callback = LossHistory(logger)
     lr_monitor_callback = LearningRateMonitor(logging_interval="step")
 
     ckpt_callback = ModelCheckpoint(
@@ -39,20 +40,23 @@ def train(TrainConfig, logger, data_module, model, total_flops, flops_analyzer):
         verbose=True,
     )
 
+    visualizer_callback = QualitativeVisualizer()
+
     trainer = L.Trainer(
         max_epochs=TrainConfig.max_epochs,
         accelerator="gpu" if torch.cuda.is_available() else "cpu", 
         devices=1,
         precision=TrainConfig.precision,
-        logger=CustomLightningLogger(logger, flops_analyzer=flops_analyzer, total_flops=total_flops, epoch_timer_callback=epoch_timer_callback),
+        logger=CustomLightningLogger(logger, flops_analyzer=flops_analyzer, total_flops=total_flops, epoch_timer_callback=epoch_timer_callback, loss_history_callback=loss_history_callback),
         strategy='auto',
         log_every_n_steps=20,
         callbacks=[
             ckpt_callback,
             es_callback,
             lr_monitor_callback,
-            # visualizer_callback,
-            epoch_timer_callback
+            visualizer_callback,
+            epoch_timer_callback,
+            loss_history_callback,
         ],
         deterministic=True,
         enable_checkpointing=True,

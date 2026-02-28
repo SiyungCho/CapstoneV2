@@ -128,3 +128,48 @@ class EpochTimer(L.Callback):
         
         self.epoch_times.append(duration)
         self.logger.log(f"Epoch {trainer.current_epoch + 1} duration: {duration:.2f} seconds", log_type="log")
+
+class LossHistory(L.Callback):
+    def __init__(self, logger=None):
+        super().__init__()
+        self.logger = logger
+        self.train_losses = []  # index = epoch (0-based)
+        self.val_losses = []    # index = epoch (0-based)
+
+    def _to_float(self, x):
+        try:
+            return float(x.detach().cpu()) if hasattr(x, "detach") else float(x)
+        except Exception:
+            return None
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        # Prefer epoch-aggregated value when available
+        v = trainer.callback_metrics.get("train/loss_epoch", None)
+        if v is None:
+            v = trainer.callback_metrics.get("train/loss", None)
+        v = self._to_float(v)
+        if v is not None:
+            # ensure list long enough
+            while len(self.train_losses) <= trainer.current_epoch:
+                self.train_losses.append(None)
+            self.train_losses[trainer.current_epoch] = v
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        v = trainer.callback_metrics.get("val/loss", None)
+        if v is None:
+            v = trainer.callback_metrics.get("val/loss_epoch", None)
+        v = self._to_float(v)
+        if v is not None:
+            while len(self.val_losses) <= trainer.current_epoch:
+                self.val_losses.append(None)
+            self.val_losses[trainer.current_epoch] = v
+
+class QualitativeVisualizer(L.Callback):
+    def __init__(self):
+        super().__init__()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        pass
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        pass

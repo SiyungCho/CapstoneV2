@@ -75,13 +75,14 @@ class JsonLogger:
 
 
 class CustomLightningLogger(Logger):
-    def __init__(self, json_logger, flops_analyzer=None, total_flops=0, epoch_timer_callback=None):
+    def __init__(self, json_logger, flops_analyzer=None, total_flops=0, epoch_timer_callback=None, loss_history_callback=None):
         super().__init__()
         self.json_logger = json_logger
         self.start_time = time.time()
         self.flops_analyzer = flops_analyzer
         self.total_flops = total_flops
         self.epoch_timer_callback = epoch_timer_callback
+        self.loss_history_callback = loss_history_callback
 
     @property
     def name(self):
@@ -141,3 +142,25 @@ class CustomLightningLogger(Logger):
             plt.savefig(self.json_logger.log_dir + "/epoch_times.png")
             plt.close() # Close the figure to free up memory
             self.json_logger.log(f"Epoch times plot saved to epoch_times.png", log_type="log")
+
+
+        lh = self.loss_history_callback
+        if lh and (lh.train_losses or lh.val_losses):
+            epochs = list(range(1, max(len(lh.train_losses), len(lh.val_losses)) + 1))
+            train_vals = (lh.train_losses + [None] * (len(epochs) - len(lh.train_losses)))
+            val_vals   = (lh.val_losses   + [None] * (len(epochs) - len(lh.val_losses)))
+
+            plt.figure(figsize=(10, 6))
+            if any(v is not None for v in train_vals):
+                plt.plot(epochs, train_vals, marker="o", linestyle="-", label="train loss")
+            if any(v is not None for v in val_vals):
+                plt.plot(epochs, val_vals, marker="o", linestyle="-", label="val loss")
+            plt.title("Train/Val Loss by Epoch")
+            plt.xlabel("Epoch")
+            plt.ylabel("Loss")
+            plt.grid(True)
+            plt.xticks(epochs)
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(self.json_logger.log_dir + "/loss_curves.png")
+            plt.close()
