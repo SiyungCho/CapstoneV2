@@ -40,7 +40,13 @@ def train(TrainConfig, logger, data_module, model, total_flops, flops_analyzer):
         verbose=True,
     )
 
-    visualizer_callback = QualitativeVisualizer()
+    visualizer_callback = QualitativeVisualizer(
+        logger=logger, 
+        every_n_epochs=10, 
+        num_frames=6, 
+        sample_index=0, 
+        out_dirname="qualitative"
+    )
 
     trainer = L.Trainer(
         max_epochs=TrainConfig.max_epochs,

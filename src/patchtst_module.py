@@ -1,5 +1,12 @@
 import time
 from types import SimpleNamespace
+import os
+from typing import Sequence
+
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,6 +15,8 @@ from torch.optim.lr_scheduler import LambdaLR
 
 from patchtst.patchtst import PatchTSTModel
 from utils import class_to_dict
+from config import HAND_CONNECTIONS
+
 
 def _merge_patchtst_configs(patchtst_cfg, model_cfg, train_cfg):
     cfg = dict(patchtst_cfg)
@@ -165,11 +174,130 @@ class LossHistory(L.Callback):
             self.val_losses[trainer.current_epoch] = v
 
 class QualitativeVisualizer(L.Callback):
-    def __init__(self):
+    def __init__(self, logger, every_n_epochs = 25, num_frames = 6, sample_index = 0, out_dirname = "qualitative"):
         super().__init__()
+        self.logger = logger
+        self.every_n_epochs = int(max(1, every_n_epochs))
+        self.num_frames = int(max(1, num_frames))
+        self.sample_index = int(max(0, sample_index))
+        self.out_dirname = str(out_dirname)
 
-    def on_train_epoch_end(self, trainer, pl_module):
-        pass
+        self.out_dir = os.path.join(self.logger.log_dir, self.out_dirname)
+        os.makedirs(self.out_dir, exist_ok=True)
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        pass
+        epoch = int(trainer.current_epoch) + 1
+        if epoch % self.every_n_epochs != 0:
+            return
+
+        batch = self._get_one_val_batch(trainer)
+        x, y = batch[0], batch[1]
+        self._run_and_save(trainer, pl_module, x, y, epoch)
+
+    def _get_one_val_batch(self, trainer):
+        dm = getattr(trainer, "datamodule", None)
+        dl = dm.val_dataloader()
+        dl = dl[0]
+        return next(iter(dl))
+
+    @torch.no_grad()
+    def _run_and_save(self, trainer, pl_module, x, y, epoch):
+        was_training = pl_module.training
+        pl_module.eval()
+
+        device = pl_module.device
+        x = x.to(device)
+        y = y.to(device)
+        y_pred = pl_module(x)
+        #X shape: torch.Size([64, 100, 40, 3]), y shape: torch.Size([64, 100, 63]), y_pred shape: torch.Size([64, 100, 63])
+
+        bsz = int(y.shape[0])
+        si = min(self.sample_index, max(0, bsz - 1))
+        gt = y[si].detach().cpu().float().numpy()      # [L, 63]
+        pr = y_pred[si].detach().cpu().float().numpy() # [L, 63]
+        #Selected sample index: 0, gt shape: (100, 63), pred shape: (100, 63)
+
+        L_ = int(gt.shape[0])
+        gt = gt.reshape(L_, 21, 3)
+        pr = pr.reshape(L_, 21, 3)
+
+        frame_ids = np.linspace(0, max(0, L_ - 1), num=min(self.num_frames, L_), dtype=int)
+
+        fp1 = os.path.join(self.out_dir, f"handpose_demo_epoch{epoch:03d}.png")
+        self._plot_handpose_montage(gt, pr, frame_ids, fp1)
+
+        fp2 = os.path.join(self.out_dir, f"error_timeseries_epoch{epoch:03d}.png")
+        self._plot_error_timeseries(gt, pr, fp2)
+
+        self.logger.log(f"[QualitativeVisualizer] saved: {os.path.relpath(fp1, self.logger.log_dir)}", log_type="log")
+        self.logger.log(f"[QualitativeVisualizer] saved: {os.path.relpath(fp2, self.logger.log_dir)}", log_type="log")
+        if was_training:
+            pl_module.train()
+
+
+    #fix functions below
+
+    def _plot_skeleton_3d(self, ax, joints_xyz: np.ndarray, title: str = ""):
+        xs, ys, zs = joints_xyz[:, 0], joints_xyz[:, 1], joints_xyz[:, 2]
+        ax.scatter(xs, ys, zs, s=10)
+        for a, b in HAND_CONNECTIONS:
+            if a < joints_xyz.shape[0] and b < joints_xyz.shape[0]:
+                ax.plot([xs[a], xs[b]], [ys[a], ys[b]], [zs[a], zs[b]], linewidth=1)
+        ax.set_title(title, fontsize=9)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_zticks([])
+        ax.view_init(elev=20, azim=-60)
+
+    def _set_equal_3d_limits(self, ax, pts: np.ndarray):
+        mins = pts.min(axis=0)
+        maxs = pts.max(axis=0)
+        center = (mins + maxs) / 2.0
+        span = float((maxs - mins).max())
+        span = span if span > 0 else 1.0
+        half = span / 2.0
+        ax.set_xlim(center[0] - half, center[0] + half)
+        ax.set_ylim(center[1] - half, center[1] + half)
+        ax.set_zlim(center[2] - half, center[2] + half)
+
+    def _plot_handpose_montage(self, gt: np.ndarray, pred: np.ndarray, frame_ids: Sequence[int], save_path: str):
+        n = len(frame_ids)
+        cols, rows = n, 2
+
+        fig = plt.figure(figsize=(max(10, 2.2 * cols), 5.0))
+        pts = np.concatenate([gt[frame_ids].reshape(-1, 3), pred[frame_ids].reshape(-1, 3)], axis=0)
+
+        for i, t in enumerate(frame_ids):
+            ax = fig.add_subplot(rows, cols, i + 1, projection="3d")
+            self._plot_skeleton_3d(ax, gt[t], title=f"GT t={t}")
+            self._set_equal_3d_limits(ax, pts)
+
+            ax2 = fig.add_subplot(rows, cols, cols + i + 1, projection="3d")
+            self._plot_skeleton_3d(ax2, pred[t], title=f"Pred t={t}")
+            self._set_equal_3d_limits(ax2, pts)
+
+        fig.suptitle("Hand Pose: Ground Truth (top) vs Prediction (bottom)", fontsize=12)
+        fig.tight_layout(rect=[0, 0, 1, 0.93])
+        fig.savefig(save_path, dpi=160)
+        plt.close(fig)
+
+    def _plot_error_timeseries(self, gt: np.ndarray, pred: np.ndarray, save_path: str):
+        per_joint = np.linalg.norm(pred - gt, axis=-1)  # [L, J]
+        mean_err = per_joint.mean(axis=1)               # [L]
+
+        key = [0, 4, 8, 12, 16, 20]  # wrist + fingertips
+        key = [k for k in key if k < per_joint.shape[1]]
+
+        fig = plt.figure(figsize=(10, 5))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.plot(mean_err, label="mean joint L2")
+        for k in key:
+            ax.plot(per_joint[:, k], label=f"joint {k} L2", alpha=0.8)
+        ax.set_title("Prediction Error Over Time")
+        ax.set_xlabel("timestep")
+        ax.set_ylabel("L2 error")
+        ax.grid(True)
+        ax.legend(fontsize=8, ncol=2)
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=160)
+        plt.close(fig)
