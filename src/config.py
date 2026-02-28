@@ -15,7 +15,8 @@ HAND_CONNECTIONS = [
 # --------------- data defaults ---------------
 @dataclass(frozen=True)
 class DataConfig:
-    data_dir = "/Users/frankcho/Desktop/CapstoneV2/src/data/"
+    # data_dir = "/Users/frankcho/Desktop/CapstoneV2/src/data/"
+    data_dir = "/home/siyung/Desktop/CapstoneV2/src/data/"
 
     seq_len = 100
     stride = 1
@@ -36,7 +37,7 @@ class ModelConfig:
     d_ff = 256
     e_layers = 3
     n_heads = 8
-    dropout = 0.1
+    dropout = 0.3
 
     # RevIN
     revin = True
@@ -64,7 +65,6 @@ class TrainConfig:
 
     # logging / checkpoints
     log_dir = "./logs"
-    ckpt_dir = "./checkpoints"
 
     # lightning precision: "32-true", "16-mixed", "bf16-mixed" (depends on GPU support)
     precision = "32-true"
@@ -83,9 +83,9 @@ class PatchTSTConfig:
     n_heads = 8
     d_model = 128
     d_ff = 256
-    dropout = 0.1
-    fc_dropout = 0.1
-    head_dropout = 0.0
+    dropout = 0.3
+    fc_dropout = 0.3
+    head_dropout = 0.5
 
     # head
     individual = False

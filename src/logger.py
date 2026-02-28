@@ -1,6 +1,12 @@
 import json
 import os
 from datetime import datetime
+import time
+
+import matplotlib.pyplot as plt
+
+from lightning.pytorch.loggers.logger import Logger, rank_zero_experiment
+from lightning.pytorch.utilities import rank_zero_only
 
 class JsonLogger:
     def __init__(self, log_dir):
@@ -66,3 +72,72 @@ class JsonLogger:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(path, "a", encoding="utf-8") as f:
             f.write(f"[{timestamp}] {line}\n")
+
+
+class CustomLightningLogger(Logger):
+    def __init__(self, json_logger, flops_analyzer=None, total_flops=0, epoch_timer_callback=None):
+        super().__init__()
+        self.json_logger = json_logger
+        self.start_time = time.time()
+        self.flops_analyzer = flops_analyzer
+        self.total_flops = total_flops
+        self.epoch_timer_callback = epoch_timer_callback
+
+    @property
+    def name(self):
+        return "logger"
+
+    @property
+    def version(self):
+        # Return the experiment version, int or str.
+        return "0.1"
+
+    @rank_zero_only
+    def log_hyperparams(self, params):
+        # Log hyperparameters to the logger.
+        self.json_logger.log(params, log_type="config")
+
+    @rank_zero_only
+    def log_metrics(self, metrics, step):
+        metrics = {k: float(v) for k, v in metrics.items()}
+        self.json_logger.log({"step": step, **metrics}, log_type="log")
+
+    @rank_zero_only
+    def save(self):
+        # Save the logger state if needed.
+        pass
+
+    @rank_zero_only
+    def finalize(self, status):
+        end_time = time.time()
+        duration = end_time - self.start_time
+        self.json_logger.log(f"Experiment finalized with status: {status}. Total duration: {duration:.2f} seconds.", log_type="log")
+        self.generate_train_summary(duration, self.total_flops, self.flops_analyzer, self.epoch_timer_callback)
+
+    def generate_train_summary(self, training_duration, total_flops, flops_analyzer, epoch_timer_callback):
+        hours, rem = divmod(training_duration, 3600)
+        minutes, seconds = divmod(rem, 60)
+        self.json_logger.log("\n--- Training Summary ---", log_type="log")
+        self.json_logger.log(f"Total training runtime: {int(hours):02d}:{int(minutes):02d}:{seconds:05.2f}", log_type="log")
+        
+        if total_flops > 0 and flops_analyzer is not None:
+            self.json_logger.log(f"Total FLOPs per forward pass: {total_flops / 1e9:.2f} GFLOPs", log_type="log")
+            self.json_logger.log("--- FLOPs Breakdown by Module ---", log_type="log")
+            self.json_logger.log(flops_analyzer.by_module(), log_type="log")
+            self.json_logger.log("---------------------------------", log_type="log")
+        self.json_logger.log("------------------------\n", log_type="log")
+    
+        if epoch_timer_callback and epoch_timer_callback.epoch_times:
+            self.json_logger.log("Generating plot for epoch training times...", log_type="log")
+            plt.figure(figsize=(10, 6))
+            num_epochs_completed = range(1, len(epoch_timer_callback.epoch_times) + 1)
+            plt.plot(num_epochs_completed, epoch_timer_callback.epoch_times, marker='o', linestyle='-')
+            plt.title('Training Time per Epoch')
+            plt.xlabel('Epoch')
+            plt.ylabel('Time (seconds)')
+            plt.grid(True)
+            plt.xticks(list(num_epochs_completed))
+            plt.tight_layout()
+            plt.savefig(self.json_logger.log_dir + "/epoch_times.png")
+            plt.close() # Close the figure to free up memory
+            self.json_logger.log(f"Epoch times plot saved to epoch_times.png", log_type="log")

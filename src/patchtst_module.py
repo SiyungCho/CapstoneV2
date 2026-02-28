@@ -50,8 +50,7 @@ class PatchTSTLightningModule(L.LightningModule):
         )
 
         # Loss configuration
-        self.loss_name = self.train_cfg.get("loss", "mse").lower()
-        self.loss_fn = nn.MSELoss() if self.loss_name in {"mse", "l2"} else nn.L1Loss()
+        self.loss_fn = nn.MSELoss(reduction='none')
 
         configs = _merge_patchtst_configs(self.patchtst_cfg, self.model_cfg, self.train_cfg)
         self.model = PatchTSTModel(configs=configs)
@@ -81,7 +80,7 @@ class PatchTSTLightningModule(L.LightningModule):
         # print(f"\n\n\nx_shape: {x.shape}")
         # print(f"y_pred shape: {y_pred.shape}, y shape: {y.shape}\n\n\n")  # Debugging shapes
 
-        loss = self.loss_fn(y_pred, y)
+        loss = self.loss_fn(y_pred, y).mean()  # Compute MSE loss and average over all elements
         mae = F.l1_loss(y_pred, y)
 
         self.log(f"{step_type}/loss", loss, on_step=(step_type == "train"), on_epoch=True, prog_bar=True, sync_dist=True)
@@ -126,6 +125,6 @@ class EpochTimer(L.Callback):
     def on_train_epoch_end(self, trainer, pl_module):
         end_time = time.time()
         duration = end_time - self.start_time
+        
         self.epoch_times.append(duration)
-        if self.logger is not None:
-            self.logger.log(f"Epoch {trainer.current_epoch + 1} duration: {duration:.2f} seconds", log_type="log")
+        self.logger.log(f"Epoch {trainer.current_epoch + 1} duration: {duration:.2f} seconds", log_type="log")

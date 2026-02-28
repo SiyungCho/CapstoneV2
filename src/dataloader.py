@@ -24,10 +24,10 @@ class EITSequenceDataset(Dataset):
         self._index = [] 
         self._build_index()
         #print input and target shapes for debugging
-        print(f"Dataset initialized with {len(self._series)} series and {len(self._index)} total windows.")
-        if len(self._index) > 0:
-            sample_entry = self._series[self._index[0][0]]
-            print(f"Sample x shape: {sample_entry['x'].shape}, Sample y shape: {sample_entry['y'].shape}")
+        # print(f"Dataset initialized with {len(self._series)} series and {len(self._index)} total windows.")
+        # if len(self._index) > 0:
+        #     sample_entry = self._series[self._index[0][0]]
+        #     print(f"Sample x shape: {sample_entry['x'].shape}, Sample y shape: {sample_entry['y'].shape}")
 
     def _build_index(self):
         for fp in self.files:
