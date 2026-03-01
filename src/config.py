@@ -18,8 +18,8 @@ class DataConfig:
     # data_dir = "/Users/frankcho/Desktop/CapstoneV2/src/data/"
     data_dir = "/home/siyung/Desktop/CapstoneV2/src/data/"
 
-    seq_len = 100
-    stride = 1
+    seq_len = 500
+    stride = 5
 
     batch_size = 16
     num_workers = 4
@@ -28,10 +28,10 @@ class DataConfig:
 # --------------- model defaults ---------------
 @dataclass(frozen=True)
 class ModelConfig:
-    pe = "sincos"  # "sin_cos" or "coord_2d"
+    pe = "sincos" 
     act = "gelu"
-    # pre_norm = True
-    # attn_dropout = 0.3
+    pre_norm = True
+    attn_dropout = 0.3
 
 # --------------- training defaults ---------------
 @dataclass(frozen=True)
@@ -40,11 +40,11 @@ class TrainConfig:
     max_epochs = 300
 
     # optim
-    lr = 1e-3
-    weight_decay = 1e-2
+    lr = 1e-4
+    weight_decay = 1e-3
     warmup_ratio = 0.05
     pretrain_epochs = 5
-    early_stop_patience = 10
+    early_stop_patience = 3
 
     #model input/output dims from dataloader output, Sample x shape: (L, 40, 3), Sample y shape: (L, 63)
     #input dim (B,L,40,3) -> (B,L,120) after flattening last two dims, output dim (B,L,63)
@@ -52,14 +52,13 @@ class TrainConfig:
     target_dim = 63
 
     # loss
-    loss_fn = "handpose"  # "mse", "mpjpe", or "handpose"
+    loss_fn = "mpjpe"  # "mse", "mpjpe", or "handpose"
 
     # logging / checkpoints
     log_dir = "./logs"
 
     # lightning precision: "32-true", "16-mixed", "bf16-mixed" (depends on GPU support)
     precision = "32-true"
-
 
 # --------------- patchtst defaults ---------------
 
@@ -74,16 +73,16 @@ class PatchTSTConfig:
     n_heads = 16
     d_model = 256
     d_ff = 512
-    dropout = 0.5
-    fc_dropout = 0.5
-    head_dropout = 0.5
+    dropout = 0.3
+    fc_dropout = 0.3
+    head_dropout = 0.3
 
     # head
     individual = False
 
     # patching
-    patch_len = 32
-    stride = 16
+    patch_len = 128
+    stride = 32
     padding_patch = None 
 
     # RevIN

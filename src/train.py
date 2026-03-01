@@ -8,7 +8,7 @@ import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
 
 from dataloader import EITDataModule
-from patchtst_module import PatchTSTLightningModule, EpochTimer, LossHistory, QualitativeVisualizer
+from patchtst_module import PatchTSTLightningModule, EpochTimer, LossHistory, QualitativeVisualizer, HighPrecisionTQDMProgressBar
 from config import TrainConfig, ModelConfig, DataConfig, PatchTSTConfig
 from logger import JsonLogger, CustomLightningLogger
 from utils import set_device, class_to_dict
@@ -27,7 +27,7 @@ def train(TrainConfig, logger, data_module, model, total_flops, flops_analyzer):
 
     ckpt_callback = ModelCheckpoint(
         dirpath=logger.log_dir,
-        filename="patchtst-{epoch:03d}-{val_loss:.4f}",
+        filename="patchtst-{epoch:03d}-{val_loss:.8f}",
         monitor="val/loss",
         mode="min",
         save_top_k=1,
@@ -42,9 +42,9 @@ def train(TrainConfig, logger, data_module, model, total_flops, flops_analyzer):
 
     visualizer_callback = QualitativeVisualizer(
         logger=logger, 
-        every_n_epochs=3, 
-        num_frames=6, 
-        sample_index=0, 
+        every_n_epochs=2, 
+        num_frames=10, 
+        sample_index=5, 
         out_dirname="qualitative"
     )
 
@@ -55,8 +55,9 @@ def train(TrainConfig, logger, data_module, model, total_flops, flops_analyzer):
         precision=TrainConfig.precision,
         logger=CustomLightningLogger(logger, flops_analyzer=flops_analyzer, total_flops=total_flops, epoch_timer_callback=epoch_timer_callback, loss_history_callback=loss_history_callback),
         strategy='auto',
-        log_every_n_steps=20,
+        log_every_n_steps=3,
         callbacks=[
+            HighPrecisionTQDMProgressBar(),
             ckpt_callback,
             es_callback,
             lr_monitor_callback,

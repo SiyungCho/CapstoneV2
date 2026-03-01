@@ -19,6 +19,7 @@ from config import HAND_CONNECTIONS
 
 from loss import HandPoseLoss, MPJPELoss
 
+from lightning.pytorch.callbacks import TQDMProgressBar
 
 def _merge_patchtst_configs(patchtst_cfg, model_cfg, train_cfg):
     cfg = dict(patchtst_cfg)
@@ -175,7 +176,7 @@ class QualitativeVisualizer(L.Callback):
         os.makedirs(self.out_dir, exist_ok=True)
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        epoch = int(trainer.current_epoch) + 1
+        epoch = int(trainer.current_epoch)
         if epoch % self.every_n_epochs != 0:
             return
 
@@ -345,3 +346,11 @@ class QualitativeVisualizer(L.Callback):
         fig.tight_layout()
         fig.savefig(save_path, dpi=160)
         plt.close(fig)
+
+class HighPrecisionTQDMProgressBar(TQDMProgressBar):
+    def get_metrics(self, trainer, pl_module):
+        metrics = super().get_metrics(trainer, pl_module)
+        for k, v in list(metrics.items()):
+            if isinstance(v, (float, int)):
+                metrics[k] = f"{v:.10f}"
+        return metrics
